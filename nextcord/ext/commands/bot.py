@@ -13,6 +13,7 @@ import sys
 import traceback
 import types
 import warnings
+from enum import Enum
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -36,6 +37,7 @@ from . import errors
 from .cog import Cog
 from .context import Context
 from .core import GroupMixin
+from .events import BotEvents
 from .help import DefaultHelpCommand, HelpCommand
 from .view import StringView
 
@@ -166,7 +168,7 @@ class BotBase(GroupMixin):
         )
 
         self.command_prefix = command_prefix if command_prefix is not MISSING else tuple()
-        self.extra_events: Dict[str, List[CoroFunc]] = {}
+        self.extra_events: Dict[Union[str, Enum], List[CoroFunc]] = {}
         self.__cogs: Dict[str, Cog] = {}
         self.__extensions: Dict[str, types.ModuleType] = {}
         self._checks: List[Check] = []
@@ -213,12 +215,24 @@ class BotBase(GroupMixin):
 
     # internal helpers
 
-    def dispatch(self, event_name: str, *args: Any, **kwargs: Any) -> None:
+    def dispatch(self, event_name: Union[str, Enum], *args: Any, **kwargs: Any) -> None:
         # super() will resolve to Client
         super().dispatch(event_name, *args, **kwargs)  # type: ignore
-        ev = "on_" + event_name
+        if isinstance(
+            event_name, Enum
+        ):  # TODO: Does this double execute in some cases since Client does a dispatch?
+            ev = event_name
+        else:
+            ev = "on_" + event_name
+
         for event in self.extra_events.get(ev, []):
             self._schedule_event(event, ev, *args, **kwargs)  # type: ignore
+            # For compatibility...
+
+        if isinstance(ev, Enum):
+            compat_ev = "on_" + ev.value
+            for event in self.extra_events.get(compat_ev, []):
+                self._schedule_event(event, compat_ev, *args, **kwargs)  # type: ignore
 
     @nextcord.utils.copy_doc(nextcord.Client.close)
     async def close(self) -> None:
@@ -484,14 +498,14 @@ class BotBase(GroupMixin):
 
     # listener registration
 
-    def add_listener(self, func: CoroFunc, name: str = MISSING) -> None:
+    def add_listener(self, func: CoroFunc, name: Union[str, Enum] = MISSING) -> None:
         """The non decorator alternative to :meth:`.listen`.
 
         Parameters
         ----------
         func: :ref:`coroutine <coroutine>`
             The function to call.
-        name: :class:`str`
+        name: Union[:class:`str`, :class:`Enum`]
             The name of the event to listen for. Defaults to ``func.__name__``.
 
         Example
@@ -516,14 +530,14 @@ class BotBase(GroupMixin):
         else:
             self.extra_events[name] = [func]
 
-    def remove_listener(self, func: CoroFunc, name: str = MISSING) -> None:
+    def remove_listener(self, func: CoroFunc, name: Union[str, Enum] = MISSING) -> None:
         """Removes a listener from the pool of listeners.
 
         Parameters
         ----------
         func
             The function that was used as a listener to remove.
-        name: :class:`str`
+        name: Union[:class:`str`, :class:`Enum`]
             The name of the event we want to remove. Defaults to
             ``func.__name__``.
         """
@@ -536,7 +550,7 @@ class BotBase(GroupMixin):
             except ValueError:
                 pass
 
-    def listen(self, name: str = MISSING) -> Callable[[CFT], CFT]:
+    def listen(self, name: Union[str, Enum] = MISSING) -> Callable[[CFT], CFT]:
         """A decorator that registers another function as an external
         event listener. Basically this allows you to listen to multiple
         events from different places e.g. such as :func:`.on_ready`
@@ -1351,7 +1365,7 @@ class BotBase(GroupMixin):
             The invocation context to invoke.
         """
         if ctx.command is not None:
-            self.dispatch("command", copy.copy(ctx))
+            self.dispatch(BotEvents.COMMAND, copy.copy(ctx))
             try:
                 if await self.can_run(ctx, call_once=True):
                     await ctx.command.invoke(ctx)
@@ -1360,10 +1374,10 @@ class BotBase(GroupMixin):
             except errors.CommandError as exc:
                 await ctx.command.dispatch_error(ctx, exc)
             else:
-                self.dispatch("command_completion", ctx)
+                self.dispatch(BotEvents.COMMAND_COMPLETION, ctx)
         elif ctx.invoked_with:
             exc = errors.CommandNotFound(ctx.invoked_with)
-            self.dispatch("command_error", ctx, exc)
+            self.dispatch(BotEvents.COMMAND_ERROR, ctx, exc)
 
     async def process_commands(self, message: Message) -> None:
         """|coro|

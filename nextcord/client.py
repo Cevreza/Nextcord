@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import logging
 import signal
 import sys
 import traceback
 import warnings
+from enum import Enum
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -39,6 +41,7 @@ from .channel import PartialMessageable, _threaded_channel_factory
 from .emoji import Emoji
 from .enums import ApplicationCommandType, ChannelType, InteractionType, Status, VoiceRegion
 from .errors import *
+from .events import ApplicationCommandEvents, ClientEvents, StateEvents
 from .flags import ApplicationFlags, Intents
 from .gateway import *
 from .guild import Guild
@@ -278,11 +281,14 @@ class Client:
         rollout_update_known: bool = True,
         rollout_all_guilds: bool = False,
         default_guild_ids: Optional[List[int]] = None,
+        check_internal_dispatches: bool = True,
     ) -> None:
         # self.ws is set in the connect method
         self.ws: DiscordWebSocket = None  # type: ignore
         self.loop: asyncio.AbstractEventLoop = asyncio.get_event_loop() if loop is None else loop
-        self._listeners: Dict[str, List[Tuple[asyncio.Future, Callable[..., bool]]]] = {}
+        self._listeners: Dict[
+            Union[str, Enum], List[Tuple[asyncio.Future, Callable[..., bool]]]
+        ] = {}
 
         self.shard_id: Optional[int] = shard_id
         self.shard_count: Optional[int] = shard_count
@@ -330,6 +336,8 @@ class Client:
         self._application_commands_to_add: Set[BaseApplicationCommand] = set()
 
         self._default_guild_ids = default_guild_ids or []
+
+        self._check_internal_dispatches = check_internal_dispatches
 
         if VoiceClient.warn_nacl:
             VoiceClient.warn_nacl = False
@@ -507,9 +515,58 @@ class Client:
         # Schedules the task
         return asyncio.create_task(wrapped, name=f"nextcord: {event_name}")
 
-    def dispatch(self, event: str, *args: Any, **kwargs: Any) -> None:
-        _log.debug("Dispatching event %s", event)
-        method = "on_" + event
+    def dispatch(self, event: Union[str, Enum], *args: Any, **kwargs: Any) -> None:
+        if self._check_internal_dispatches and isinstance(event, str):
+            frame = inspect.getframeinfo(inspect.stack()[1][0])
+            if frame.code_context is not None and "super().dispatch" in frame.code_context[0]:
+                frame = inspect.getframeinfo(inspect.stack()[2][0])
+
+            if (
+                "nextcord" in frame.filename
+            ):  # TODO: Actually check if it's in the package for real?
+                found_enum = None
+                for enum_classes in [ApplicationCommandEvents, ClientEvents, StateEvents]:
+                    try:
+                        found_enum = enum_classes(event)
+                    except ValueError:
+                        pass
+                    else:
+                        break
+
+                if found_enum:
+                    _log.warning(
+                        'Nextcord function "%s" is calling dispatch using string "%s" instead of %s at '
+                        "line %s of %s. %s",
+                        frame.function,
+                        event,
+                        found_enum,
+                        frame.lineno,
+                        frame.filename,
+                        ("\n" + "\n".join(frame.code_context).rstrip())
+                        if frame.code_context
+                        else "",
+                    )
+                else:
+                    _log.warning(
+                        'Nextcord function "%s" is calling dispatch using string "%s" at '
+                        "line %s of %s. %s",
+                        frame.function,
+                        event,
+                        frame.lineno,
+                        frame.filename,
+                        ("\n" + "\n".join(frame.code_context).rstrip())
+                        if frame.code_context
+                        else "",
+                    )
+        self._dispatch_to_listeners(event, *args, **kwargs)
+        self._dispatch_to_function(event, *args, **kwargs)  # TODO: Backwards compat I think?
+
+        if isinstance(event, Enum):
+            # For backwards compatibility.
+            self._dispatch_to_listeners(event.value, *args, **kwargs)
+
+    def _dispatch_to_listeners(self, event: Union[str, Enum], *args: Any, **kwargs: Any) -> None:
+        _log.debug("Dispatching event %s to listeners.", event)
 
         listeners = self._listeners.get(event)
         if listeners:
@@ -540,11 +597,18 @@ class Client:
                 for idx in reversed(removed):
                     del listeners[idx]
 
+    def _dispatch_to_function(self, event: Union[str, Enum], *args: Any, **kwargs: Any) -> None:
+        if isinstance(event, Enum):
+            method = "on_" + event.value
+        else:
+            method = "on_" + event
+
         try:
             coro = getattr(self, method)
         except AttributeError:
             pass
         else:
+            _log.debug("Dispatching event to local function %s.", method)
             self._schedule_event(coro, method, *args, **kwargs)
 
     async def on_error(self, event_method: str, *args: Any, **kwargs: Any) -> None:
@@ -689,7 +753,7 @@ class Client:
                     await self.ws.poll_event()
             except ReconnectWebSocket as e:
                 _log.info("Got a request to %s the websocket.", e.op)
-                self.dispatch("disconnect")
+                self.dispatch(ClientEvents.DISCONNECT)
 
                 # Only specify new gateway if resuming, otherwise use the default one
                 if e.resume:
@@ -716,7 +780,7 @@ class Client:
                 aiohttp.ClientError,
                 asyncio.TimeoutError,
             ) as exc:
-                self.dispatch("disconnect")
+                self.dispatch(ClientEvents.DISCONNECT)
                 if not reconnect:
                     await self.close()
                     if isinstance(exc, ConnectionClosed) and exc.code == 1000:
@@ -773,7 +837,7 @@ class Client:
 
         self._closed = True
 
-        self.dispatch("close")
+        self.dispatch(ClientEvents.CLOSE)
 
         for voice in self.voice_clients:
             try:

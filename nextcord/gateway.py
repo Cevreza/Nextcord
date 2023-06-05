@@ -20,6 +20,7 @@ from . import utils
 from .activity import BaseActivity
 from .enums import SpeakingState
 from .errors import ConnectionClosed, InvalidArgument
+from .events import GatewayEvents
 
 if TYPE_CHECKING:
     from typing import Any, Protocol
@@ -313,7 +314,7 @@ class DiscordWebSocket:
         return self._rate_limiter.is_ratelimited()
 
     def debug_log_receive(self, data: Any, /) -> None:
-        self._dispatch("socket_raw_receive", data)
+        self._dispatch(GatewayEvents.SOCKET_RAW_RECEIVE, data)
 
     def log_receive(self, _, /) -> None:
         pass
@@ -464,7 +465,7 @@ class DiscordWebSocket:
         _log.debug("For Shard ID %s: WebSocket Event: %s", self.shard_id, msg)
         event = message.get("t")
         if event:
-            self._dispatch("socket_event_type", event)
+            self._dispatch(GatewayEvents.SOCKET_EVENT_TYPE, event)
 
         op: int = message["op"]
         data: Dict[str, Any] = message["d"]
@@ -631,7 +632,7 @@ class DiscordWebSocket:
 
     async def debug_send(self, data: Any, /) -> None:
         await self._rate_limiter.block()
-        self._dispatch("socket_raw_send", data)
+        self._dispatch(GatewayEvents.SOCKET_RAW_SEND, data)
         await self.socket.send_str(data)
 
     async def send(self, data: Any, /) -> None:
