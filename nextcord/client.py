@@ -29,6 +29,7 @@ from typing import (
 )
 
 import aiohttp
+from aiohttp import web
 
 from . import utils
 from .activity import ActivityTypes, BaseActivity, create_activity
@@ -37,7 +38,15 @@ from .application_command import message_command, slash_command, user_command
 from .backoff import ExponentialBackoff
 from .channel import PartialMessageable, _threaded_channel_factory
 from .emoji import Emoji
-from .enums import ApplicationCommandType, ChannelType, InteractionType, Status, VoiceRegion
+from .endpoint import UnifiedEndpoint, oauth_url_request_generator
+from .enums import (
+    ApplicationCommandType,
+    ChannelType,
+    InteractionType,
+    OAuth2Scopes,
+    Status,
+    VoiceRegion,
+)
 from .errors import *
 from .flags import ApplicationFlags, Intents
 from .gateway import *
@@ -278,6 +287,7 @@ class Client:
         rollout_update_known: bool = True,
         rollout_all_guilds: bool = False,
         default_guild_ids: Optional[List[int]] = None,
+        start_endpoint: bool = False,
     ) -> None:
         # self.ws is set in the connect method
         self.ws: DiscordWebSocket = None  # type: ignore
@@ -330,6 +340,12 @@ class Client:
         self._application_commands_to_add: Set[BaseApplicationCommand] = set()
 
         self._default_guild_ids = default_guild_ids or []
+
+        self.endpoint = UnifiedEndpoint()
+        self._endpoint_on_start = start_endpoint
+        self.endpoint.oauth2.on_oauth_endpoint = self._client_oauth2_endpoint_override
+        self.endpoint.role_conn.on_middleware_match = self._role_conn_override
+        self._endpoint_site = None
 
         if VoiceClient.warn_nacl:
             VoiceClient.warn_nacl = False
@@ -546,6 +562,31 @@ class Client:
             pass
         else:
             self._schedule_event(coro, method, *args, **kwargs)
+
+    async def _client_oauth2_endpoint_override(
+        self, redirect_uri, code: str, state: Optional[str]
+    ) -> None:
+        # TODO: Swap to a better constant?
+        if state == "role_conn_redirect":
+            self.dispatch("role_conn_verify", redirect_uri, code, state)
+        else:
+            self.dispatch("oauth", redirect_uri, code, state)
+
+    def _role_conn_override(self, request: web.Request, handler):
+        if self._connection.application_id is None:
+            _log.warning(
+                "Tried to redirect for an incoming role connection, but application_id is unavailable."
+            )
+            raise web.HTTPServerError()
+        else:
+            uri = request.rel_url.with_path(self.endpoint.oauth2.route)
+            url = oauth_url_request_generator(
+                redirect_uri=uri.human_repr(),
+                client_id=self._connection.application_id,
+                scopes=[OAuth2Scopes.identify, OAuth2Scopes.role_connections_write],
+                state="role_conn_redirect",  # TODO: Swap to a better constant?
+            )
+            raise web.HTTPFound(url)
 
     async def on_error(self, event_method: str, *args: Any, **kwargs: Any) -> None:
         """|coro|
@@ -786,6 +827,10 @@ class Client:
             await self.ws.close(code=1000)
 
         await self.http.close()
+
+        if self._endpoint_site:
+            await self._endpoint_site.stop()
+
         self._ready.clear()
 
     def clear(self) -> None:
@@ -800,7 +845,9 @@ class Client:
         self._connection.clear()
         self.http.recreate()
 
-    async def start(self, token: str, *, reconnect: bool = True) -> None:
+    async def start(
+        self, token: str, *, reconnect: bool = True, client_secret: Optional[str] = None
+    ) -> None:
         """|coro|
 
         A shorthand coroutine for :meth:`login` + :meth:`connect`.
@@ -811,6 +858,12 @@ class Client:
             An unexpected keyword argument was received.
         """
         await self.login(token)
+        if self._endpoint_on_start:
+            if client_secret is not None:
+                self.http.set_client_secret(client_secret)
+
+            self._endpoint_site = await self.endpoint.start()
+
         await self.connect(reconnect=reconnect)
 
     def run(self, *args: Any, **kwargs: Any) -> None:

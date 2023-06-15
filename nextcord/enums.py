@@ -29,6 +29,8 @@ __all__ = (
     "StickerFormatType",
     "InviteTarget",
     "Locale",
+    "OAuth2Scopes",
+    "ApplicationRoleConnectionMetadataType",
     "VideoQualityMode",
     "ComponentType",
     "ButtonStyle",
@@ -621,6 +623,48 @@ class Locale(StrEnum):
     """Chinese, Taiwan | 繁體中文"""
     ko = "ko"
     """Korean | 한국어"""
+
+
+class OAuth2Scopes(StrEnum):
+    """List of OAuth2 Scopes that Discord supports, mapped from a code-traceable name to the string Discord expects."""
+
+    # https://discord.com/developers/docs/topics/oauth2#shared-resources-oauth2-scopes
+    activities_read = "activities.read"
+    """Requires Discord approval."""
+    activities_write = "activities.write"
+    """Requires Discord approval."""
+    applications_builds_read = "applications.builds.read"
+    # TODO: Fill in the rest.
+    bot = "bot"
+    connections = "connections"
+    email = "email"
+    gdm_join = "gdm.join"
+    """Allows your bot to put user(s) in a Group DM. Does NOT allow the bot into the Group DM."""
+    guilds = "guilds"
+    guilds_join = "guilds.join"
+    guilds_members_read = "guilds.members.read"
+    identify = "identify"
+    messages_read = "messages.read"
+    """For local RPC server API access."""
+    relationships_read = "relationships.read"
+    """Requires Discord approval."""
+    # TODO: This is a little weird, swapping . for _ isn't always going to be perfect since they also
+    #  use _ legitimately. Might need to change strats, but what's the likelihood of
+    #  both "role_conn.write" and "role.conn_write" or some variation of that existing?
+    role_connections_write = "role_connections.write"
+    """THIS IS WHY THIS FEATURE EXISTS IN NC!"""  # TODO: Write an actual description.
+
+
+class ApplicationRoleConnectionMetadataType(IntEnum):
+    # TODO: Shorten this name? It's the name Discord gives it, but the heck is the length?
+    integer_less_than_or_equal = 1
+    integer_greater_than_or_equal = 2
+    integer_equal = 3
+    integer_not_equal = 4
+    datetime_less_than_or_equal = 5
+    datetime_greater_than_or_equal = 6
+    boolean_equal = 7
+    boolean_not_equal = 8
 
 
 class VideoQualityMode(IntEnum):
