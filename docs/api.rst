@@ -2912,32 +2912,34 @@ of :class:`enum.Enum`.
 
         Alias for :attr:`.closed`
 
-.. class:: NSFWLevel
+.. class:: AgeRestrictionLevel
 
-    Represents the NSFW level of a guild.
+    Represents the Age Restriction level of a guild.
 
-    .. versionadded:: 2.0
+    There is an alias for this called ``NSFWLevel``.
+
+    .. versionadded:: 2.5
 
     .. container:: operations
 
         .. describe:: x == y
 
-            Checks if two NSFW levels are equal.
+            Checks if two Age Restriction levels are equal.
         .. describe:: x != y
 
-            Checks if two NSFW levels are not equal.
+            Checks if two Age Restriction levels are not equal.
         .. describe:: x > y
 
-            Checks if a NSFW level is higher than another.
+            Checks if an Age Restriction level is higher than another.
         .. describe:: x < y
 
-            Checks if a NSFW level is lower than another.
+            Checks if an Age Restriction level is lower than another.
         .. describe:: x >= y
 
-            Checks if a NSFW level is higher or equal to another.
+            Checks if an Age Restriction level is higher or equal to another.
         .. describe:: x <= y
 
-            Checks if a NSFW level is lower or equal to another.
+            Checks if an Age Restriction level is lower or equal to another.
 
     .. attribute:: default
 
@@ -2945,15 +2947,15 @@ of :class:`enum.Enum`.
 
     .. attribute:: explicit
 
-        The guild contains NSFW content.
+        The guild contains age restricted content.
 
     .. attribute:: safe
 
-        The guild does not contain any NSFW content.
+        The guild does not contain any age restricted content.
 
     .. attribute:: age_restricted
 
-        The guild may contain NSFW content.
+        The guild may contain age restricted content.
 
 .. class:: ScheduledEventEntityType
 

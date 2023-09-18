@@ -140,11 +140,19 @@ class TextChannel(abc.Messageable, abc.GuildChannel, Hashable, PinsMixin):
 
         ..versionadded:: 2.1
     nsfw: :class:`bool`
-        If the channel is marked as "not safe for work".
+        Alias for :attr:`.age_restricted`.
+
+        .. vesionchanged:: 2.5
+            This is now an alias for :attr:`.age_restricted`.
+    age_restricted: :class:`bool`
+        Whether the channel is age restricted.
 
         .. note::
 
-            To check if the channel or the guild of that channel are marked as NSFW, consider :meth:`is_nsfw` instead.
+            To check whether the channel or the guild of that channel are age restricted, consider :meth:`.is_age_restricted` instead.
+
+        .. versionadded:: 2.5
+
     default_auto_archive_duration: :class:`int`
         The default auto archive duration in minutes for threads created in this channel.
 
@@ -164,6 +172,7 @@ class TextChannel(abc.Messageable, abc.GuildChannel, Hashable, PinsMixin):
         "topic",
         "_state",
         "nsfw",
+        "age_restricted",
         "category_id",
         "position",
         "slowmode_delay",
@@ -186,7 +195,7 @@ class TextChannel(abc.Messageable, abc.GuildChannel, Hashable, PinsMixin):
             ("id", self.id),
             ("name", self.name),
             ("position", self.position),
-            ("nsfw", self.nsfw),
+            ("age_restricted", self.age_restricted),
             ("news", self.is_news()),
             ("category_id", self.category_id),
         ]
@@ -199,7 +208,9 @@ class TextChannel(abc.Messageable, abc.GuildChannel, Hashable, PinsMixin):
         self.category_id: Optional[int] = utils.get_as_snowflake(data, "parent_id")
         self.topic: Optional[str] = data.get("topic")
         self.position: int = data["position"]
-        self.nsfw: bool = data.get("nsfw", False)
+        self.age_restricted: bool = data.get("nsfw", False)
+        # Alias
+        self.nsfw: bool = self.age_restricted
         # Does this need coercion into `int`? No idea yet.
         self.slowmode_delay: int = data.get("rate_limit_per_user", 0)
         self.default_auto_archive_duration: ThreadArchiveDuration = data.get(
@@ -245,9 +256,20 @@ class TextChannel(abc.Messageable, abc.GuildChannel, Hashable, PinsMixin):
         """
         return [thread for thread in self.guild._threads.values() if thread.parent_id == self.id]
 
+    def is_age_restricted(self) -> bool:
+        """:class:`bool`: Checks if the channel is age restricted.
+
+        .. versionadded:: 2.5
+        """
+        return self.age_restricted
+
     def is_nsfw(self) -> bool:
-        """:class:`bool`: Checks if the channel is NSFW."""
-        return self.nsfw
+        """:class:`bool`: Alias for :attr:`.is_age_restricted`
+
+        .. vesionchanged:: 2.5
+            This is now an alias for :meth:`.is_age_restricted`.
+        """
+        return self.is_age_restricted()
 
     def is_news(self) -> bool:
         """:class:`bool`: Checks if the channel is a news channel."""
@@ -282,7 +304,27 @@ class TextChannel(abc.Messageable, abc.GuildChannel, Hashable, PinsMixin):
         name: str = ...,
         topic: str = ...,
         position: int = ...,
-        nsfw: bool = ...,
+        age_restricted: bool = ...,
+        sync_permissions: bool = ...,
+        category: Optional[CategoryChannel] = ...,
+        slowmode_delay: int = ...,
+        default_auto_archive_duration: ThreadArchiveDuration = ...,
+        type: ChannelType = ...,
+        overwrites: Mapping[Union[Role, Member, Snowflake], PermissionOverwrite] = ...,
+        flags: ChannelFlags = ...,
+        default_thread_slowmode_delay: int = ...,
+    ) -> Optional[TextChannel]:
+        ...
+
+    @overload
+    async def edit(
+        self,
+        *,
+        reason: Optional[str] = ...,
+        name: str = ...,
+        topic: str = ...,
+        position: int = ...,
+        nsfw: bool = ...,  # alias of age_restricted
         sync_permissions: bool = ...,
         category: Optional[CategoryChannel] = ...,
         slowmode_delay: int = ...,
@@ -298,7 +340,7 @@ class TextChannel(abc.Messageable, abc.GuildChannel, Hashable, PinsMixin):
     async def edit(self) -> Optional[TextChannel]:
         ...
 
-    async def edit(self, *, reason=None, **options):
+    async def edit(self, *, reason: Optional[str] = None, **options):
         """|coro|
 
         Edits the channel.
@@ -324,7 +366,14 @@ class TextChannel(abc.Messageable, abc.GuildChannel, Hashable, PinsMixin):
         position: :class:`int`
             The new channel's position.
         nsfw: :class:`bool`
-            To mark the channel as NSFW or not.
+            Alias for ``age_restricted``.
+
+            .. versionchanged:: 2.5
+                This is now an alias for ``age_restricted``.
+        age_restricted: :class:`bool`
+            To mark the channel as age restricted or not.
+
+            .. versionadded:: 2.5
         sync_permissions: :class:`bool`
             Whether to sync permissions with the channel's new or pre-existing
             category. Defaults to ``False``.
@@ -368,7 +417,6 @@ class TextChannel(abc.Messageable, abc.GuildChannel, Hashable, PinsMixin):
             The newly edited text channel. If the edit was only positional
             then ``None`` is returned instead.
         """
-
         payload = await self._edit(options, reason=reason)
         if payload is not None:
             # the payload will always be the proper channel payload
@@ -379,7 +427,11 @@ class TextChannel(abc.Messageable, abc.GuildChannel, Hashable, PinsMixin):
         self, *, name: Optional[str] = None, reason: Optional[str] = None
     ) -> TextChannel:
         return await self._clone_impl(
-            {"topic": self.topic, "nsfw": self.nsfw, "rate_limit_per_user": self.slowmode_delay},
+            {
+                "topic": self.topic,
+                "nsfw": self.age_restricted,
+                "rate_limit_per_user": self.slowmode_delay,
+            },
             name=name,
             reason=reason,
         )
@@ -879,7 +931,14 @@ class ForumChannel(abc.GuildChannel, Hashable):
     position: :class:`int`
         The position in the channel list, where the first channel is ``0``.
     nsfw: :class:`bool`
-        If this channel is marked as NSFW.
+        Alias for :attr:`.age_restricted`.
+
+        .. versionchanged:: 2.5
+            This is now an alias for :attr:`.age_restricted`.
+    age_restricted: :class:`bool`
+        If this channel is age restricted.
+
+        .. versionadded:: 2.5
     slowmode_delay: :class:`int`
         The delay in seconds which members must wait between sending messages.
     flags: :class:`ChannelFlags`
@@ -916,6 +975,7 @@ class ForumChannel(abc.GuildChannel, Hashable):
         "position",
         "topic",
         "nsfw",
+        "age_restricted",
         "flags",
         "slowmode_delay",
         "default_auto_archive_duration",
@@ -942,7 +1002,8 @@ class ForumChannel(abc.GuildChannel, Hashable):
         self.category_id: Optional[int] = utils.get_as_snowflake(data, "parent_id")
         self.topic: Optional[str] = data.get("topic")
         self.position: int = data["position"]
-        self.nsfw: bool = data.get("nsfw", False)
+        self.age_restricted: bool = data.get("nsfw", False)
+        self.nsfw: bool = self.age_restricted
         # Does this need coercion into `int`? No idea yet.
         self.slowmode_delay: int = data.get("rate_limit_per_user", 0)
         self.flags: ChannelFlags = ChannelFlags._from_value(data.get("flags", 0))
@@ -1008,9 +1069,20 @@ class ForumChannel(abc.GuildChannel, Hashable):
         """List[:class:`Thread`]: Returns all the threads of this channel."""
         return [thread for thread in self.guild._threads.values() if thread.parent_id == self.id]
 
+    def is_age_restricted(self) -> bool:
+        """:class:`bool`: Checks if the channel is age restricted.
+
+        .. versionadded:: 2.5
+        """
+        return self.age_restricted
+
     def is_nsfw(self) -> bool:
-        """:class:`bool`: Checks if the channel is NSFW."""
-        return self.nsfw
+        """:class:`bool`: Alias for :meth:`.is_age_restricted`.
+
+        .. versionchanged:: 2.5
+            This is now an alias for :meth:`.is_age_restricted`.
+        """
+        return self.is_age_restricted()
 
     @property
     def last_message(self) -> Optional[Message]:
@@ -1067,7 +1139,29 @@ class ForumChannel(abc.GuildChannel, Hashable):
         name: str = ...,
         topic: str = ...,
         position: int = ...,
-        nsfw: bool = ...,
+        age_resricted: bool = ...,
+        sync_permissions: bool = ...,
+        category: Optional[CategoryChannel] = ...,
+        slowmode_delay: int = ...,
+        default_auto_archive_duration: ThreadArchiveDuration = ...,
+        overwrites: Mapping[Union[Role, Member, Snowflake], PermissionOverwrite] = ...,
+        flags: ChannelFlags = ...,
+        reason: Optional[str] = ...,
+        default_sort_order: Optional[SortOrderType] = ...,
+        default_thread_slowmode_delay: int = ...,
+        available_tags: List[ForumTag] = ...,
+        default_reaction: Optional[Union[Emoji, PartialEmoji, str]] = ...,
+    ) -> ForumChannel:
+        ...
+
+    @overload
+    async def edit(
+        self,
+        *,
+        name: str = ...,
+        topic: str = ...,
+        position: int = ...,
+        nsfw: bool = ...,  # alias for age_restricted
         sync_permissions: bool = ...,
         category: Optional[CategoryChannel] = ...,
         slowmode_delay: int = ...,
@@ -1087,7 +1181,7 @@ class ForumChannel(abc.GuildChannel, Hashable):
     async def edit(self) -> ForumChannel:
         ...
 
-    async def edit(self, *, reason=None, **options) -> ForumChannel:
+    async def edit(self, *, reason: Optional[str] = None, **options) -> ForumChannel:
         """|coro|
 
         Edits the channel.
@@ -1104,7 +1198,14 @@ class ForumChannel(abc.GuildChannel, Hashable):
         position: :class:`int`
             The new channel's position.
         nsfw: :class:`bool`
-            To mark the channel as NSFW or not.
+            Alias for ``age_restricted``.
+
+            .. versionchanged:: 2.5
+                This is now an alias for ``age_restricted``.
+        age_resricted: :class:`bool`
+            To mark the channel as age restricted or not.
+
+            .. versionadded:: 2.5
         sync_permissions: :class:`bool`
             Whether to sync permissions with the channel's new or pre-existing
             category. Defaults to ``False``.
@@ -1633,13 +1734,20 @@ class VoiceChannel(VocalGuildChannel, abc.Messageable):
 
         .. versionadded:: 2.1
     nsfw: :class:`bool`
-        If the channel is marked as "not safe for work".
+        Alias for :attr:`.age_resricted`.
+
+        .. versionadded:: 2.1
+
+        .. versionchanged:: 2.5
+            This is now an alias for :attr:`.age_resricted`.
+    age_resricted: :class:`bool`
+        If the channel is age restricted.
 
         .. note::
 
-            To check if the channel or the guild of that channel are marked as NSFW, consider :meth:`is_nsfw` instead.
+            To check if the channel or the guild of that channel are age restricted, consider :meth:`.is_age_resricted` instead.
 
-        .. versionadded:: 2.1
+        .. versionadded:: 2.5
     flags: :class:`ChannelFlags`
         Extra features of the channel.
 
@@ -1649,6 +1757,7 @@ class VoiceChannel(VocalGuildChannel, abc.Messageable):
     __slots__ = (
         "last_message_id",
         "nsfw",
+        "age_restricted",
     )
 
     def __repr__(self) -> str:
@@ -1668,7 +1777,7 @@ class VoiceChannel(VocalGuildChannel, abc.Messageable):
     def _update(self, guild: Guild, data: VoiceChannelPayload) -> None:
         VocalGuildChannel._update(self, guild, data)
         self.last_message_id: Optional[int] = utils.get_as_snowflake(data, "last_message_id")
-        self.nsfw: bool = data.get("nsfw", False)
+        self.age_restricted: bool = data.get("nsfw", False)
 
     async def _get_channel(self):
         return self
@@ -1678,9 +1787,20 @@ class VoiceChannel(VocalGuildChannel, abc.Messageable):
         """:class:`ChannelType`: The channel's Discord type."""
         return ChannelType.voice
 
+    def is_age_restricted(self) -> bool:
+        """:class:`bool`: Check if the channel is age restricted.
+
+        .. versionadded:: 2.5
+        """
+        return self.age_restricted
+
     def is_nsfw(self) -> bool:
-        """:class:`bool`: Checks if the channel is NSFW."""
-        return self.nsfw
+        """:class:`bool`: Alias for :meth:`.is_age_restricted`.
+
+        .. versionchanged:: 2.5
+            This is now an alias for :meth:`.is_age_restricted`.
+        """
+        return self.is_age_restricted()
 
     @property
     def last_message(self) -> Optional[Message]:
@@ -1735,7 +1855,7 @@ class VoiceChannel(VocalGuildChannel, abc.Messageable):
     async def edit(self) -> Optional[VoiceChannel]:
         ...
 
-    async def edit(self, *, reason=None, **options):
+    async def edit(self, *, reason: Optional[str] = None, **options):
         """|coro|
 
         Edits the channel.
@@ -2250,7 +2370,7 @@ class StageChannel(VocalGuildChannel):
     async def edit(self) -> Optional[StageChannel]:
         ...
 
-    async def edit(self, *, reason=None, **options):
+    async def edit(self, *, reason: Optional[str] = None, **options):
         """|coro|
 
         Edits the channel.
@@ -2346,11 +2466,18 @@ class CategoryChannel(abc.GuildChannel, Hashable):
         The position in the category list. This is a number that starts at 0. e.g. the
         top category is position 0.
     nsfw: :class:`bool`
-        If the channel is marked as "not safe for work".
+        Alias for :attr:`.age_restricted`.
+
+        .. versionchanged:: 2.5
+            This is now an alias for :attr:`.age_restricted`.
+    age_restricted: :class:`bool`
+        If the channel is age restricted.
 
         .. note::
 
-            To check if the channel or the guild of that channel are marked as NSFW, consider :meth:`is_nsfw` instead.
+            To check if the channel or the guild of that channel are age restricted, consider :meth:`is_age_restricted` instead.
+
+        .. versionadded:: 2.5
     flags: :class:`ChannelFlags`
         Extra features of the channel.
 
@@ -2362,6 +2489,7 @@ class CategoryChannel(abc.GuildChannel, Hashable):
         "id",
         "guild",
         "nsfw",
+        "age_restricted",
         "_state",
         "position",
         "_overwrites",
@@ -2377,13 +2505,14 @@ class CategoryChannel(abc.GuildChannel, Hashable):
         self._update(guild, data)
 
     def __repr__(self) -> str:
-        return f"<CategoryChannel id={self.id} name={self.name!r} position={self.position} nsfw={self.nsfw}>"
+        return f"<CategoryChannel id={self.id} name={self.name!r} position={self.position} age_resricted={self.nsfw}>"
 
     def _update(self, guild: Guild, data: CategoryChannelPayload) -> None:
         self.guild: Guild = guild
         self.name: str = data["name"]
         self.category_id: Optional[int] = utils.get_as_snowflake(data, "parent_id")
-        self.nsfw: bool = data.get("nsfw", False)
+        self.age_restricted: bool = data.get("nsfw", False)
+        self.nsfw: bool = self.age_restricted
         self.position: int = data["position"]
         self.flags: ChannelFlags = ChannelFlags._from_value(data.get("flags", 0))
         self._fill_overwrites(data)
@@ -2397,9 +2526,20 @@ class CategoryChannel(abc.GuildChannel, Hashable):
         """:class:`ChannelType`: The channel's Discord type."""
         return ChannelType.category
 
+    def is_age_restricted(self) -> bool:
+        """:class:`bool`: Checks if the category is age restricted.
+
+        .. versionadded:: 2.5
+        """
+        return self.age_restricted
+
     def is_nsfw(self) -> bool:
-        """:class:`bool`: Checks if the category is NSFW."""
-        return self.nsfw
+        """:class:`bool`: Alias for :meth:`.is_age_restricted`.
+
+        .. versionchanged:: 2.5
+            This is now an alias for :meth:`.is_age_restricted`.
+        """
+        return self.is_age_restricted()
 
     @utils.copy_doc(abc.GuildChannel.clone)
     async def clone(
@@ -2413,7 +2553,20 @@ class CategoryChannel(abc.GuildChannel, Hashable):
         *,
         name: str = ...,
         position: int = ...,
-        nsfw: bool = ...,
+        age_restricted: bool = ...,
+        overwrites: Mapping[Union[Role, Member], PermissionOverwrite] = ...,
+        flags: ChannelFlags = ...,
+        reason: Optional[str] = ...,
+    ) -> Optional[CategoryChannel]:
+        ...
+
+    @overload
+    async def edit(
+        self,
+        *,
+        name: str = ...,
+        position: int = ...,
+        nsfw: bool = ...,  # alias for age_restricted
         overwrites: Mapping[Union[Role, Member], PermissionOverwrite] = ...,
         flags: ChannelFlags = ...,
         reason: Optional[str] = ...,
@@ -2424,7 +2577,7 @@ class CategoryChannel(abc.GuildChannel, Hashable):
     async def edit(self) -> Optional[CategoryChannel]:
         ...
 
-    async def edit(self, *, reason=None, **options):
+    async def edit(self, *, reason: Optional[str] = None, **options):
         """|coro|
 
         Edits the channel.
@@ -2445,7 +2598,14 @@ class CategoryChannel(abc.GuildChannel, Hashable):
         position: :class:`int`
             The new category's position.
         nsfw: :class:`bool`
-            To mark the category as NSFW or not.
+            Alias for ``age_restricted``.
+
+            .. versionchanged:: 2.5
+                This is now an alias for ``age_restricted``.
+        age_restricted: :class:`bool`
+            To mark the category as age restricted or not.
+
+            .. versionadded:: 2.5
         reason: Optional[:class:`str`]
             The reason for editing this category. Shows up on the audit log.
         overwrites: :class:`Mapping`

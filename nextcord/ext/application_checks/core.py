@@ -15,6 +15,7 @@ from nextcord.application_command import (
 from nextcord.interactions import Interaction
 
 from .errors import (
+    ApplicationAgeRestrictedChannelRequired,
     ApplicationBotMissingAnyRole,
     ApplicationBotMissingPermissions,
     ApplicationBotMissingRole,
@@ -26,7 +27,6 @@ from .errors import (
     ApplicationMissingRole,
     ApplicationNoPrivateMessage,
     ApplicationNotOwner,
-    ApplicationNSFWChannelRequired,
     ApplicationPrivateMessageOnly,
 )
 
@@ -49,6 +49,7 @@ __all__ = (
     "guild_only",
     "is_owner",
     "is_nsfw",
+    "is_age_restricted",
     "application_command_before_invoke",
     "application_command_after_invoke",
 )
@@ -672,10 +673,21 @@ def is_owner() -> AC:
 
 
 def is_nsfw() -> AC:
-    """A :func:`.check` that checks if the channel is a NSFW channel.
+    """This is an alias for :func:`.is_age_restricted`.
 
-    This check raises a special exception, :exc:`.ApplicationNSFWChannelRequired`
+    .. versionchanged:: 2.5
+        This is now an alias for :func:`.is_age_restricted`.
+    """
+    return is_age_restricted()
+
+
+def is_age_restricted() -> AC:
+    """A :func:`.check` that checks if the channel is age restricted.
+
+    This check raises a special exception, :exc:`.ApplicationAgeRestrictedChannelRequired`
     that is derived from :exc:`.ApplicationCheckFailure`.
+
+    .. versionadded:: 2.5
 
     Example
     -------
@@ -683,18 +695,18 @@ def is_nsfw() -> AC:
     .. code-block:: python3
 
         @bot.slash_command()
-        @application_checks.is_nsfw()
+        @application_checks.is_age_restricted()
         async def ownercmd(interaction: Interaction):
-            await interaction.response.send_message('Only NSFW channels!')
+            await interaction.response.send_message('Only age restricted channels!')
     """
 
     def pred(interaction: Interaction) -> bool:
         ch = interaction.channel
         if interaction.guild is None or (
-            isinstance(ch, (nextcord.TextChannel, nextcord.Thread)) and ch.is_nsfw()
+            isinstance(ch, (nextcord.TextChannel, nextcord.Thread)) and ch.is_age_restricted()
         ):
             return True
-        raise ApplicationNSFWChannelRequired(ch)
+        raise ApplicationAgeRestrictedChannelRequired(ch)
 
     return check(pred)
 
