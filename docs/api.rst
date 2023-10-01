@@ -5146,7 +5146,7 @@ Decorators
 Cogs
 ~~~~
 
-.. autoclass:: ClientCog
+.. autoclass:: Cog
     :members:
 
 Warnings

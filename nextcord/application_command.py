@@ -40,6 +40,7 @@ from .channel import (
     TextChannel,
     VoiceChannel,
 )
+from .cog import Cog
 from .enums import ApplicationCommandOptionType, ApplicationCommandType, ChannelType, Locale
 from .errors import ApplicationCheckFailure, ApplicationCommandOptionMissing, ApplicationInvokeError
 from .guild import Guild
@@ -80,7 +81,6 @@ __all__ = (
     "ApplicationCommandOption",
     "BaseCommandOption",
     "OptionConverter",
-    "ClientCog",
     "CallbackMixin",
     "SlashOption",
     "SlashCommandOption",
@@ -112,11 +112,6 @@ if TYPE_CHECKING:
     EllipsisType = ellipsis  # noqa: F821
 else:
     EllipsisType = type(Ellipsis)
-
-
-def _cog_special_method(func: FuncT) -> FuncT:
-    func.__cog_special_method__ = None
-    return func
 
 
 class CallbackWrapper:
@@ -385,7 +380,7 @@ class ApplicationCommandOption:
 
 
 class BaseCommandOption(ApplicationCommandOption):
-    """Represents an application command option, but takes a :class:`Parameter` and :class:`ClientCog` as
+    """Represents an application command option, but takes a :class:`Parameter` and :class:`Cog` as
     an argument.
 
     Parameters
@@ -394,7 +389,7 @@ class BaseCommandOption(ApplicationCommandOption):
         Function parameter to construct the command option with.
     command: Union[:class:`BaseApplicationCommand`, :class:`SlashApplicationSubcommand`]
         Application Command this option is for.
-    parent_cog: :class:`ClientCog`
+    parent_cog: :class:`Cog`
         Class that the function the option is for resides in.
     """
 
@@ -402,14 +397,14 @@ class BaseCommandOption(ApplicationCommandOption):
         self,
         parameter: Parameter,
         command: Union[BaseApplicationCommand, SlashApplicationSubcommand],
-        parent_cog: Optional[ClientCog] = None,
+        parent_cog: Optional[Cog] = None,
     ) -> None:
         ApplicationCommandOption.__init__(self)
         self.parameter: Parameter = parameter
         self.command: Union[BaseApplicationCommand, SlashApplicationSubcommand] = command
         self.functional_name: str = parameter.name
         """Name of the kwarg in the function/method"""
-        self.parent_cog: Optional[ClientCog] = parent_cog
+        self.parent_cog: Optional[Cog] = parent_cog
 
     @property
     def error_name(self) -> str:
@@ -475,100 +470,6 @@ class Mentionable(OptionConverter):
         return value
 
 
-class ClientCog:
-    # TODO: I get it's a terrible name, I just don't want it to duplicate current Cog right now.
-    # __cog_application_commands__: List[ApplicationCommand]
-    # __cog_to_register__: List[ApplicationCommand]
-    __cog_application_commands__: List[BaseApplicationCommand]
-
-    def __new__(cls, *args: Any, **kwargs: Any):
-        new_cls = super(ClientCog, cls).__new__(cls)
-        new_cls._read_application_commands()
-        return new_cls
-
-    def _read_application_commands(self) -> None:
-        """Iterates through the application (sub)commands contained within the ClientCog, runs their from_callback
-        methods, then adds them to the internal list of application commands for this cog.
-        """
-        self.__cog_application_commands__ = []
-        for base in reversed(self.__class__.__mro__):
-            for _, value in base.__dict__.items():
-                is_static_method = isinstance(value, staticmethod)
-                if is_static_method:
-                    value = value.__func__
-
-                if isinstance(value, SlashApplicationCommand):
-                    value.parent_cog = self
-                    value.from_callback(value.callback, call_children=False)
-                    self.__cog_application_commands__.append(value)
-                elif isinstance(value, SlashApplicationSubcommand):
-                    # As subcommands are part of a parent command and
-                    #  not usable on their own, we don't add them to the command list, but do set the self_argument and
-                    #  run them from the callback.
-                    value.parent_cog = self
-                    value.from_callback(value.callback, call_children=False)
-                elif isinstance(value, BaseApplicationCommand):
-                    value.parent_cog = self
-                    value.from_callback(value.callback)
-                    self.__cog_application_commands__.append(value)
-
-    @property
-    def application_commands(self) -> List[BaseApplicationCommand]:
-        """Provides the list of application commands in this cog. Subcommands are not included."""
-        return self.__cog_application_commands__
-
-    def process_app_cmds(self) -> None:
-        """Formats all added application commands with their callback."""
-        # TODO: Find better name, check conflicts with actual cogs.
-        for app_cmd in self.application_commands:
-            app_cmd.from_callback(app_cmd.callback)
-
-    @classmethod
-    def _get_overridden_method(cls, method: FuncT) -> Optional[FuncT]:
-        """Return None if the method is not overridden. Otherwise returns the overridden method."""
-        return getattr(method.__func__, "__cog_special_method__", method)
-
-    @_cog_special_method
-    def cog_application_command_check(self, interaction: Interaction) -> bool:
-        """A special method that registers as a :func:`.ext.application_checks.check`
-        for every application command and subcommand in this cog.
-
-        This function **can** be a coroutine and must take a sole parameter,
-        ``interaction``, to represent the :class:`.Interaction`.
-        """
-        return True
-
-    @_cog_special_method
-    async def cog_application_command_before_invoke(self, interaction: Interaction) -> None:
-        """A special method that acts as a cog local pre-invoke hook.
-
-        This is similar to :meth:`.ApplicationCommand.before_invoke`.
-
-        This **must** be a coroutine.
-
-        Parameters
-        ----------
-        interaction: :class:`.Interaction`
-            The invocation interaction.
-        """
-        pass
-
-    @_cog_special_method
-    async def cog_application_command_after_invoke(self, interaction: Interaction) -> None:
-        """A special method that acts as a cog local post-invoke hook.
-
-        This is similar to :meth:`.Command.after_invoke`.
-
-        This **must** be a coroutine.
-
-        Parameters
-        ----------
-        interaction: :class:`.Interaction`
-            The invocation interaction.
-        """
-        pass
-
-
 class MissingApplicationCommandParametersWarning(UserWarning):
     """Warning category raised when creating a slash command from a callback when it appears
     the self and/or interaction parameter is missing based on the given type annotations.
@@ -591,7 +492,7 @@ class CallbackMixin:
     options: Dict[str, BaseCommandOption]
 
     def __init__(
-        self, callback: Optional[Callable] = None, parent_cog: Optional[ClientCog] = None
+        self, callback: Optional[Callable] = None, parent_cog: Optional[Cog] = None
     ) -> None:
         """Contains code specific for adding callback support to a command class.
 
@@ -601,7 +502,7 @@ class CallbackMixin:
         ----------
         callback: Optional[:data:`~typing.Callable`]
             Callback to create options from and invoke. If provided, it must be a coroutine function.
-        parent_cog: Optional[:class:`ClientCog`]
+        parent_cog: Optional[:class:`Cog`]
             Class that the callback resides on. Will be passed into the callback if provided.
         """
         self.callback: Optional[Callable] = callback
@@ -657,9 +558,7 @@ class CallbackMixin:
         if not self.parent_cog:
             return None
 
-        return ClientCog._get_overridden_method(
-            self.parent_cog.cog_application_command_before_invoke
-        )
+        return Cog._get_overridden_method(self.parent_cog.cog_application_command_before_invoke)
 
     @property
     def cog_after_invoke(self) -> Optional[ApplicationHook]:
@@ -673,9 +572,7 @@ class CallbackMixin:
         if not self.parent_cog:
             return None
 
-        return ClientCog._get_overridden_method(
-            self.parent_cog.cog_application_command_after_invoke
-        )
+        return Cog._get_overridden_method(self.parent_cog.cog_application_command_after_invoke)
 
     def has_error_handler(self) -> bool:
         """:class:`bool`: Checks whether the command has an error handler registered."""
@@ -855,9 +752,7 @@ class CallbackMixin:
 
         # Cog check
         if self.parent_cog:
-            cog_check = ClientCog._get_overridden_method(
-                self.parent_cog.cog_application_command_check
-            )
+            cog_check = Cog._get_overridden_method(self.parent_cog.cog_application_command_check)
             if cog_check is not None and not await maybe_coroutine(cog_check, interaction):
                 raise ApplicationCheckFailure(
                     f"The cog check functions for application command {self.error_name} failed."
@@ -1009,7 +904,7 @@ class AutocompleteOptionMixin:
     def __init__(
         self,
         autocomplete_callback: Optional[Callable] = None,
-        parent_cog: Optional[ClientCog] = None,
+        parent_cog: Optional[Cog] = None,
     ) -> None:
         """Contains code for providing autocomplete support, specifically for options.
 
@@ -1019,13 +914,13 @@ class AutocompleteOptionMixin:
         ----------
         autocomplete_callback: Optional[:data:`~typing.Callable`]
             Callback to create options from and invoke. If provided, it must be a coroutine function.
-        parent_cog: Optional[:class:`ClientCog`]
+        parent_cog: Optional[:class:`Cog`]
             Class that the callback resides on. Will be passed into the callback if provided.
 
         """
         self.autocomplete_callback: Optional[Callable] = autocomplete_callback
         self.autocomplete_options: Set[str] = set()
-        self.parent_cog: Optional[ClientCog] = parent_cog
+        self.parent_cog: Optional[Cog] = parent_cog
 
     def from_autocomplete_callback(self, callback: Callable) -> AutocompleteOptionMixin:
         """Parses a callback meant to be the autocomplete function."""
@@ -1069,19 +964,19 @@ class AutocompleteCommandMixin:
     children: Dict[str, SlashApplicationSubcommand]
     _state: ConnectionState
 
-    def __init__(self, parent_cog: Optional[ClientCog] = None) -> None:
+    def __init__(self, parent_cog: Optional[Cog] = None) -> None:
         """Contains code for providing autocomplete support, specifically for application commands.
 
         If you are a normal user, you shouldn't be using this.
 
         Parameters
         ----------
-        parent_cog: Optional[:class:`ClientCog`]
+        parent_cog: Optional[:class:`Cog`]
             Class that the callback resides on. Will be passed into the callback if provided.
         """
         self.parent_cog = parent_cog
         # Why does this exist, and why is it "temp", you may ask? :class:`SlashCommandOption`'s are only available
-        # after the callback is fully parsed when the :class:`Client` or :class:`ClientCog` runs the from_callback
+        # after the callback is fully parsed when the :class:`Client` or :class:`Cog` runs the from_callback
         # method, thus we have to hold the decorated autocomplete callbacks temporarily until then.
         self._temp_autocomplete_callbacks: Dict[str, Callable] = {}
 
@@ -1395,7 +1290,7 @@ class SlashCommandOption(BaseCommandOption, SlashOption, AutocompleteOptionMixin
         self,
         parameter: Parameter,
         command: Union[SlashApplicationCommand, SlashApplicationSubcommand],
-        parent_cog: Optional[ClientCog] = None,
+        parent_cog: Optional[Cog] = None,
     ) -> None:
         BaseCommandOption.__init__(self, parameter, command, parent_cog)
         SlashOption.__init__(self)
@@ -1751,7 +1646,7 @@ class SlashCommandMixin(CallbackMixin):
         qualified_name: str
         _children: Dict[str, SlashApplicationSubcommand]
 
-    def __init__(self, callback: Optional[Callable], parent_cog: Optional[ClientCog]) -> None:
+    def __init__(self, callback: Optional[Callable], parent_cog: Optional[Cog]) -> None:
         CallbackMixin.__init__(self, callback=callback, parent_cog=parent_cog)
         self.options: Dict[str, SlashCommandOption] = {}
         self._parsed_docstring: Optional[Dict[str, Any]] = None
@@ -1887,7 +1782,7 @@ class BaseApplicationCommand(CallbackMixin, CallbackWrapperMixin):
 
     Attributes
     ----------
-    checks: List[Union[Callable[[:class:`ClientCog`, :class:`Interaction`], MaybeCoro[:class:`bool`]], Callable[[:class:`Interaction`], MaybeCoro[:class:`bool`]]]]
+    checks: List[Union[Callable[[:class:`Cog`, :class:`Interaction`], MaybeCoro[:class:`bool`]], Callable[[:class:`Interaction`], MaybeCoro[:class:`bool`]]]]
         A list of predicates that verifies if the command could be executed
         with the given :class:`Interaction` as the sole parameter. If an exception
         is necessary to be thrown to signal failure, then one inherited from
@@ -1909,7 +1804,7 @@ class BaseApplicationCommand(CallbackMixin, CallbackWrapperMixin):
         dm_permission: Optional[bool] = None,
         default_member_permissions: Optional[Union[Permissions, int]] = None,
         nsfw: bool = False,
-        parent_cog: Optional[ClientCog] = None,
+        parent_cog: Optional[Cog] = None,
         force_global: bool = False,
     ) -> None:
         """Base application command class that all specific application command classes should subclass. All common
@@ -1946,8 +1841,8 @@ class BaseApplicationCommand(CallbackMixin, CallbackWrapperMixin):
             Whether the command can only be used in age-restricted channels. Defaults to ``False``.
 
             .. versionadded:: 2.4
-        parent_cog: Optional[:class:`ClientCog`]
-            ``ClientCog`` to forward to the callback as the ``self`` argument.
+        parent_cog: Optional[:class:`Cog`]
+            ``Cog`` to forward to the callback as the ``self`` argument.
         force_global: :class:`bool`
             If this command should be registered as a global command, ALONG WITH all guild IDs set.
         """
@@ -2568,7 +2463,7 @@ class SlashApplicationSubcommand(SlashCommandMixin, AutocompleteCommandMixin, Ca
         description_localizations: Optional[Dict[Union[Locale, str], str]] = None,
         callback: Optional[Callable] = None,
         parent_cmd: Union[SlashApplicationCommand, SlashApplicationSubcommand, None] = None,
-        parent_cog: Optional[ClientCog] = None,
+        parent_cog: Optional[Cog] = None,
         inherit_hooks: bool = False,
     ) -> None:
         """Slash Application Subcommand, supporting additional subcommands and autocomplete.
@@ -2594,7 +2489,7 @@ class SlashApplicationSubcommand(SlashCommandMixin, AutocompleteCommandMixin, Ca
         cmd_type: :class:`ApplicationCommandOptionType`
             Should either be ``ApplicationCommandOptionType.sub_command`` or
             ``ApplicationCommandOptionType.sub_command_group``
-        parent_cog: Optional[:class:`ClientCog`]
+        parent_cog: Optional[:class:`Cog`]
             Parent cog for the callback, if it exists. If provided, it will be given to the callback as ``self``.
         inherit_hooks: :class:`bool`
             If this subcommand should inherit the parent (sub)commands ``before_invoke`` and ``after_invoke`` callbacks.
@@ -2809,7 +2704,7 @@ class SlashApplicationCommand(SlashCommandMixin, BaseApplicationCommand, Autocom
         dm_permission: Optional[bool] = None,
         default_member_permissions: Optional[Union[Permissions, int]] = None,
         nsfw: bool = False,
-        parent_cog: Optional[ClientCog] = None,
+        parent_cog: Optional[Cog] = None,
         force_global: bool = False,
     ) -> None:
         """Represents a Slash Application Command built from the given callback, able to be registered to multiple
@@ -2846,8 +2741,8 @@ class SlashApplicationCommand(SlashCommandMixin, BaseApplicationCommand, Autocom
                 Due to a discord limitation, this can only be set for the parent command in case of a subcommand.
 
             .. versionadded:: 2.4
-        parent_cog: Optional[:class:`ClientCog`]
-            ``ClientCog`` to forward to the callback as the ``self`` argument.
+        parent_cog: Optional[:class:`Cog`]
+            ``Cog`` to forward to the callback as the ``self`` argument.
         force_global: :class:`bool`
             If this command should be registered as a global command, ALONG WITH all guild IDs set.
         """
@@ -2983,7 +2878,7 @@ class UserApplicationCommand(BaseApplicationCommand):
         dm_permission: Optional[bool] = None,
         default_member_permissions: Optional[Union[Permissions, int]] = None,
         nsfw: bool = False,
-        parent_cog: Optional[ClientCog] = None,
+        parent_cog: Optional[Cog] = None,
         force_global: bool = False,
     ) -> None:
         """Represents a User Application Command that will give the user to the given callback, able to be registered to
@@ -3011,8 +2906,8 @@ class UserApplicationCommand(BaseApplicationCommand):
             Whether the command can only be used in age-restricted channels. Defaults to ``False``.
 
             .. versionadded:: 2.4
-        parent_cog: Optional[:class:`ClientCog`]
-            ``ClientCog`` to forward to the callback as the ``self`` argument.
+        parent_cog: Optional[:class:`Cog`]
+            ``Cog`` to forward to the callback as the ``self`` argument.
         force_global: :class:`bool`
             If this command should be registered as a global command, ALONG WITH all guild IDs set.
         """
@@ -3065,7 +2960,7 @@ class MessageApplicationCommand(BaseApplicationCommand):
         dm_permission: Optional[bool] = None,
         default_member_permissions: Optional[Union[Permissions, int]] = None,
         nsfw: bool = False,
-        parent_cog: Optional[ClientCog] = None,
+        parent_cog: Optional[Cog] = None,
         force_global: bool = False,
     ) -> None:
         """Represents a Message Application Command that will give the message to the given callback, able to be
@@ -3093,8 +2988,8 @@ class MessageApplicationCommand(BaseApplicationCommand):
             Whether the command can only be used in age-restricted channels. Defaults to ``False``.
 
             .. versionadded:: 2.4
-        parent_cog: Optional[:class:`ClientCog`]
-            ``ClientCog`` to forward to the callback as the ``self`` argument.
+        parent_cog: Optional[:class:`Cog`]
+            ``Cog`` to forward to the callback as the ``self`` argument.
         force_global: :class:`bool`
             If this command should be registered as a global command, ALONG WITH all guild IDs set.
         """
@@ -3147,7 +3042,7 @@ def slash_command(
     force_global: bool = False,
 ):
     """Creates a Slash application command from the decorated function.
-    Used inside :class:`ClientCog`'s or something that subclasses it.
+    Used inside :class:`Cog`'s or something that subclasses it.
 
     Parameters
     ----------
@@ -3218,7 +3113,7 @@ def message_command(
     force_global: bool = False,
 ):
     """Creates a Message context command from the decorated function.
-    Used inside :class:`ClientCog`'s or something that subclasses it.
+    Used inside :class:`Cog`'s or something that subclasses it.
 
     Parameters
     ----------
@@ -3277,7 +3172,7 @@ def user_command(
     force_global: bool = False,
 ):
     """Creates a User context command from the decorated function.
-    Used inside :class:`ClientCog`'s or something that subclasses it.
+    Used inside :class:`Cog`'s or something that subclasses it.
 
     Parameters
     ----------

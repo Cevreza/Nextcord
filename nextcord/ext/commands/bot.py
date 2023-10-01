@@ -143,6 +143,8 @@ _NonCallablePrefix = Union[str, Sequence[str]]
 
 
 class BotBase(GroupMixin):
+    _cogs: Dict[str, nextcord.Cog]
+
     def __init__(
         self,
         command_prefix: Union[
@@ -166,7 +168,6 @@ class BotBase(GroupMixin):
 
         self.command_prefix = command_prefix if command_prefix is not MISSING else tuple()
         self.extra_events: Dict[str, List[CoroFunc]] = {}
-        self.__cogs: Dict[str, Cog] = {}
         self.__extensions: Dict[str, types.ModuleType] = {}
         self._checks: List[Check] = []
         self._check_once = []
@@ -224,12 +225,6 @@ class BotBase(GroupMixin):
         for extension in tuple(self.__extensions):
             try:
                 self.unload_extension(extension)
-            except Exception:
-                pass
-
-        for cog in tuple(self.__cogs):
-            try:
-                self.remove_cog(cog)
             except Exception:
                 pass
 
@@ -573,7 +568,7 @@ class BotBase(GroupMixin):
 
     # cogs
 
-    def add_cog(self, cog: Cog, *, override: bool = False) -> None:
+    def add_cog(self, cog: nextcord.Cog, *, override: bool = False) -> None:
         """Adds a "cog" to the bot.
 
         A cog is a class that has its own event listeners and commands.
@@ -585,8 +580,13 @@ class BotBase(GroupMixin):
 
         Parameters
         ----------
-        cog: :class:`.Cog`
+        cog: :class:`nextcord.Cog`
             The cog to register to the bot.
+
+            .. versionchanged:: 3.0
+
+                :class:`nextcord.Cog` is supported, alongside :class:`.Cog`.
+
         override: :class:`bool`
             If a previously loaded cog with the same name should be ejected
             instead of raising an error.
@@ -596,28 +596,18 @@ class BotBase(GroupMixin):
         Raises
         ------
         TypeError
-            The cog does not inherit from :class:`.Cog`.
+            The cog does not inherit from :class:`nextcord.Cog`.
         CommandError
             An error happened during loading.
         ClientException
             A cog with the same name is already loaded.
         """
 
-        if not isinstance(cog, Cog):
-            raise TypeError("cogs must derive from Cog")
+        if isinstance(cog, Cog):
+            cog = cog._inject(self)
 
-        cog_name = cog.__cog_name__
-        existing = self.__cogs.get(cog_name)
-
-        if existing is not None:
-            if not override:
-                raise nextcord.ClientException(f"Cog named {cog_name!r} already loaded")
-            self.remove_cog(cog_name)
-
-        cog = cog._inject(self)
-        self.__cogs[cog_name] = cog
         # TODO: This blind call to nextcord.Client is dumb.
-        super().add_cog(cog)  # type: ignore
+        super().add_cog(cog, override=override)  # type: ignore
         # Info: To add the ability to use BaseApplicationCommands in Cogs, the Client has to be aware of cogs. For
         # minimal editing, BotBase must call Client's add_cog function. While it all works out in the end because Bot
         # and AutoShardedBot both end up subclassing Client, this is BotBase and BotBase does not subclass Client, hence
@@ -625,26 +615,7 @@ class BotBase(GroupMixin):
         # Whatever warning that your IDE is giving about the above line of code is correct. When Bot + BotBase
         # inevitably get reworked, make me happy and fix this.
 
-    def get_cog(self, name: str) -> Optional[Cog]:
-        """Gets the cog instance requested.
-
-        If the cog is not found, ``None`` is returned instead.
-
-        Parameters
-        ----------
-        name: :class:`str`
-            The name of the cog you are requesting.
-            This is equivalent to the name passed via keyword
-            argument in class creation or the class name if unspecified.
-
-        Returns
-        -------
-        Optional[:class:`Cog`]
-            The cog that was requested. If not found, returns ``None``.
-        """
-        return self.__cogs.get(name)
-
-    def remove_cog(self, name: str) -> Optional[Cog]:
+    def remove_cog(self, cog: Union[str, nextcord.Cog]) -> Optional[nextcord.Cog]:
         """Removes a cog from the bot and returns it.
 
         All registered commands and event listeners that the
@@ -654,41 +625,53 @@ class BotBase(GroupMixin):
 
         Parameters
         ----------
-        name: :class:`str`
-            The name of the cog to remove.
+        cog: Union[:class:`str`, :class:`nextcord.Cog`]
+            Either the name of the cog to remove or the instance
+            of the cog to remove.
+
+            .. versionchanged:: 3.0
+
+                You can now provide the instance of the cog to remove.
+
+                The name of this parameter has been changed to ``cog`` to better reflect this behavior.
+
+            .. versionchanged:: 3.0
+
+                :class:`nextcord.Cog` is supported, alongside :class:`.Cog`.
 
         Returns
         -------
-        Optional[:class:`.Cog`]
+        Optional[:class:`nextcord.Cog`]
              The cog that was removed. ``None`` if not found.
+
+             .. versionchanged:: 3.0
+
+                :class:`nextcord.Cog` is supported, alongside :class:`.Cog`.
+
         """
 
-        cog = self.__cogs.pop(name, None)
-        if cog is None:
+        # TODO: This blind call to nextcord.Client is dumb.
+        actual_cog = super().remove_cog(cog)  # type: ignore
+        # See Bot.add_cog() for the reason why.
+
+        if actual_cog is None:
             return
 
         help_command = self._help_command
-        if help_command and help_command.cog is cog:
+        if help_command and help_command.cog is actual_cog:
             help_command.cog = None
-        cog._eject(self)
 
-        # TODO: This blind call to nextcord.Client is dumb.
-        super().remove_cog(cog)  # type: ignore
-        # See Bot.add_cog() for the reason why.
+        if isinstance(actual_cog, Cog):
+            actual_cog._eject(self)
 
-        return cog
-
-    @property
-    def cogs(self) -> Mapping[str, Cog]:
-        """Mapping[:class:`str`, :class:`Cog`]: A read-only mapping of cog name to cog."""
-        return types.MappingProxyType(self.__cogs)
+        return actual_cog
 
     # extensions
 
     def _remove_module_references(self, name: str) -> None:
         # find all references to the module
         # remove the cogs registered from the module
-        for cogname, cog in self.__cogs.copy().items():
+        for cogname, cog in self._cogs.copy().items():
             if _is_submodule(name, cog.__module__):
                 self.remove_cog(cogname)
 

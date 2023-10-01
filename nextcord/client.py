@@ -7,6 +7,7 @@ import logging
 import signal
 import sys
 import traceback
+import types
 import warnings
 from typing import (
     TYPE_CHECKING,
@@ -17,6 +18,7 @@ from typing import (
     Generator,
     Iterable,
     List,
+    Mapping,
     Optional,
     Sequence,
     Set,
@@ -36,6 +38,7 @@ from .appinfo import AppInfo
 from .application_command import message_command, slash_command, user_command
 from .backoff import ExponentialBackoff
 from .channel import PartialMessageable, _threaded_channel_factory
+from .cog import Cog
 from .emoji import Emoji
 from .enums import ApplicationCommandType, ChannelType, InteractionType, Status, VoiceRegion
 from .errors import *
@@ -67,7 +70,7 @@ if TYPE_CHECKING:
     from nextcord.types.checks import ApplicationCheck, ApplicationHook
 
     from .abc import GuildChannel, PrivateChannel, Snowflake, SnowflakeTime
-    from .application_command import BaseApplicationCommand, ClientCog
+    from .application_command import BaseApplicationCommand
     from .asset import Asset
     from .channel import DMChannel
     from .enums import Locale
@@ -323,7 +326,7 @@ class Client:
         self._connection._get_websocket = self._get_websocket
         self._connection._get_client = lambda: self
         self._lazy_load_commands: bool = lazy_load_commands
-        self._client_cogs: Set[ClientCog] = set()
+        self._cogs: Dict[str, Cog] = {}
         self._rollout_associate_known: bool = rollout_associate_known
         self._rollout_delete_unknown: bool = rollout_delete_unknown
         self._rollout_register_new: bool = rollout_register_new
@@ -473,6 +476,14 @@ class Client:
         .. versionadded:: 2.0
         """
         return self._connection.application_flags
+
+    @property
+    def cogs(self) -> Mapping[str, Cog]:
+        """Mapping[:class:`str`, :class:`nextcord.Cog`]: A read-only mapping of cog name to cog.
+
+        .. versionadded:: 3.0
+        """
+        return types.MappingProxyType(self._cogs)
 
     @property
     def default_guild_ids(self) -> List[int]:
@@ -787,6 +798,12 @@ class Client:
                 await voice.disconnect(force=True)
             except Exception:
                 # if an error happens during disconnects, disregard it.
+                pass
+
+        for cog in tuple(self._cogs):
+            try:
+                self.remove_cog(cog)
+            except Exception:
                 pass
 
         if self.ws is not None and self.ws.open:  # pyright: ignore
@@ -2617,23 +2634,105 @@ class Client:
 
     def add_all_cog_commands(self) -> None:
         """Adds all :class:`ApplicationCommand` objects inside added cogs to the application command list."""
-        for cog in self._client_cogs:
+        for cog in self._cogs.values():
             if to_register := cog.application_commands:
                 for cmd in to_register:
                     self.add_application_command(cmd, use_rollout=True, pre_remove=False)
 
-    def add_cog(self, cog: ClientCog) -> None:
-        # cog.process_app_cmds()
+    def add_cog(self, cog: Cog, *, override: bool = False) -> None:
+        """Adds a "cog" to the client.
+
+        A cog is a class that has its own commands.
+
+        Parameters
+        ----------
+        cog: :class:`nextcord.Cog`
+            The cog to register to the bot.
+
+        override: :class:`bool`
+            If a previously loaded cog with the same name should be ejected
+            instead of raising an error.
+
+            .. versionadded:: 3.0
+
+        Raises
+        ------
+        TypeError
+            The cog does not inherit from :class:`Cog`.
+        CommandError
+            An error happened during loading.
+        ClientException
+            A cog with the same name is already loaded.
+        """
+
+        if not isinstance(cog, Cog):
+            raise TypeError("cogs must derive from nextcord.Cog")
+
+        cog_name = cog.__cog_name__
+        existing = self._cogs.get(cog_name)
+
+        if existing is not None:
+            if not override:
+                raise ClientException(f"Cog named {cog_name!r} already loaded")
+            self.remove_cog(cog_name)
+
         for app_cmd in cog.application_commands:
             self.add_application_command(app_cmd, use_rollout=True)
 
-        self._client_cogs.add(cog)
+        self._cogs[cog_name] = cog
 
-    def remove_cog(self, cog: ClientCog) -> None:
-        for app_cmd in cog.application_commands:
+    def get_cog(self, name: str) -> Optional[Cog]:
+        """Gets the cog instance requested.
+
+        If the cog is not found, ``None`` is returned instead.
+
+        .. versionadded:: 3.0
+
+        Parameters
+        ----------
+        name: :class:`str`
+            The name of the cog you are requesting.
+            This is equivalent to the name passed via keyword
+            argument in class creation or the class name if unspecified.
+
+        Returns
+        -------
+        Optional[:class:`Cog`]
+            The cog that was requested. If not found, returns ``None``.
+        """
+        return self._cogs.get(name)
+
+    def remove_cog(self, cog: Union[Cog, str]) -> Optional[Cog]:
+        """Removes a cog from the client and returns it.
+
+        All registered commands that the cog has registered
+        will be removed as well.
+
+        If no cog is found then this method has no effect.
+
+        Parameters
+        ----------
+        cog: Union[:class:`str`, :class:`Cog`]
+            Either the name of the cog to remove or the instance
+            of the cog to remove.
+
+        Returns
+        -------
+        Optional[:class:`nextcord.Cog`]
+             The cog that was removed. ``None`` if not found.
+        """
+        stored_cog: Optional[Cog] = None
+        if isinstance(cog, Cog):
+            cog = cog.__cog_name__
+        stored_cog = self._cogs.pop(cog, None)
+
+        if stored_cog is None:
+            return
+
+        for app_cmd in stored_cog.application_commands:
             self._connection.remove_application_command(app_cmd)
 
-        self._client_cogs.discard(cog)
+        return stored_cog
 
     def user_command(
         self,

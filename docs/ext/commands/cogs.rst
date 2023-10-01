@@ -5,15 +5,8 @@
 Cogs
 ====
 
-There comes a point in your bot's development when you want to organize a collection of commands, listeners, and some state into one class. Cogs allow you to do just that.
-
-The gist:
-
-- Each cog is a Python class that subclasses :class:`.commands.Cog`.
-- Every command is marked with the :func:`.commands.command` decorator.
-- Every listener is marked with the :meth:`.commands.Cog.listener` decorator.
-- Cogs are then registered with the :meth:`.Bot.add_cog` call.
-- Cogs are subsequently removed with the :meth:`.Bot.remove_cog` call.
+:class:`~.commands.Cog` is similar to :class:`nextcord.Cog` except it adds support for :class:`~.commands.Command`, listeners,
+and more special methods.
 
 It should be noted that cogs are typically used alongside with :ref:`ext_commands_extensions`.
 
@@ -45,70 +38,39 @@ This example cog defines a ``Greetings`` category for your commands, with a sing
                 await ctx.send(f'Hello {member.name}... This feels familiar.')
             self._last_member = member
 
-A couple of technical notes to take into consideration:
+.. _ext_commands_cogs_listeners:
 
-- All listeners must be explicitly marked via decorator, :meth:`~.commands.Cog.listener`.
-- The name of the cog is automatically derived from the class name but can be overridden. See :ref:`ext_commands_cogs_meta_options`.
-- All commands must now take a ``self`` parameter to allow usage of instance attributes that can be used to maintain state.
+Listeners
+---------
 
-Cog Registration
-----------------
-
-Once you have defined your cogs, you need to tell the bot to register the cogs to be used. We do this via the :meth:`~.commands.Bot.add_cog` method.
+Listeners are functions that are invoked whenever an :ref:`Event <discord-api-events>` is dispatched by the bot. They are always indicated with the :func:`.Cog.listener` decorator, which optionally takes in the name of the event being listened to. If not provided, the name of the function is used to determine the event being listened to.
+Here is an example:
 
 .. code-block:: python3
 
-    bot.add_cog(Greetings(bot))
-
-This binds the cog to the bot, adding all commands and listeners to the bot automatically.
-
-Note that we reference the cog by name, which we can override through :ref:`ext_commands_cogs_meta_options`. So if we ever want to remove the cog eventually, we would have to do the following.
-
-.. code-block:: python3
-
-    bot.remove_cog('Greetings')
-
-Using Cogs
-----------
-
-Just as we remove a cog by its name, we can also retrieve it by its name as well. This allows us to use a cog as an inter-command communication protocol to share data. For example:
-
-.. code-block:: python3
-    :emphasize-lines: 22,24
-
-    class Economy(commands.Cog):
-        ...
-
-        async def withdraw_money(self, member, money):
-            # implementation here
-            ...
-
-        async def deposit_money(self, member, money):
-            # implementation here
-            ...
-
-    class Gambling(commands.Cog):
+    class MyListeners(commands.Cog):
         def __init__(self, bot):
             self.bot = bot
 
-        def coinflip(self):
-            return random.randint(0, 1)
+        # this listens to the ready event because of the name of the function, "on_ready"
+        @commands.Cog.listener()
+        def on_ready(self):
+            print("The bot is ready!")
 
-        @commands.command()
-        async def gamble(self, ctx, money: int):
-            """Gambles some money."""
-            economy = self.bot.get_cog('Economy')
-            if economy is not None:
-                await economy.withdraw_money(ctx.author, money)
-                if self.coinflip() == 1:
-                    await economy.deposit_money(ctx.author, money * 1.5)
+        @commands.Cog.listener()
+        def on_message(self, message):
+            print("Got a message from", message.author)
+
+        @commands.Cog.listener("on_message")
+        def you_got_mail(self, message):
+            print("You got mail:", message.content)
 
 .. _ext_commands_cogs_special_methods:
 
 Special Methods
 ---------------
 
-As cogs get more complicated and have more commands, there comes a point where we want to customise the behaviour of the entire cog or bot.
+Special Methods are exactly like what they are in :class:`nextcord.Cog`, however there are additional special methods.
 
 They are as follows:
 
@@ -120,21 +82,16 @@ They are as follows:
 - :meth:`.Cog.bot_check`
 - :meth:`.Cog.bot_check_once`
 
-You can visit the reference to get more detail.
+You can visit the reference to get more detail and see additional special methods in :ref:`cogs`.
 
 .. _ext_commands_cogs_meta_options:
 
 Meta Options
 ------------
 
-At the heart of a cog resides a metaclass, :class:`.commands.CogMeta`, which can take various options to customise some of the behaviour. To do this, we pass keyword arguments to the class definition line. For example, to change the cog name we can pass the ``name`` keyword argument as follows:
+Meta options are exactly like what they are in :class:`nextcord.Cog`, however there is an additional option.
 
-.. code-block:: python3
-
-    class MyCog(commands.Cog, name='My Cog'):
-        pass
-
-To see more options that you can set, see the documentation of :class:`.commands.CogMeta`.
+For more information, see the documentation of :class:`.CogMeta`.
 
 Inspection
 ----------
