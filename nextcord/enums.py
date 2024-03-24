@@ -49,6 +49,8 @@ __all__ = (
     "SortOrderType",
     "RoleConnectionMetadataType",
     "ForumLayoutType",
+    "OnboardingPromptType",
+    "OnboardingMode",
 )
 
 
@@ -2035,6 +2037,30 @@ class ForumLayoutType(IntEnum):
     """Display posts as a list, more text focused."""
     gallery = 2
     """Display posts as a collection of posts with images, this is more image focused."""
+
+
+class OnboardingPromptType(IntEnum):
+    """Represents the type of :class:`OnboardingPrompt`.
+
+    .. versionadded:: 3.0
+    """
+
+    multiple_choice = 0
+    """Displays the options as multiple choice."""
+    dropdown = 1
+    """Displays the options in a dropdown menu."""
+
+
+class OnboardingMode(IntEnum):
+    """The criteria needed in order for onboarding to be enabled.
+
+    .. versionadded:: 3.0
+    """
+
+    default = 0
+    """Only Default Channels are needed."""
+    advanced = 1
+    """Default Channels & Questions are needed."""
 
 
 T = TypeVar("T")
