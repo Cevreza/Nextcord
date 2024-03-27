@@ -2104,6 +2104,7 @@ class Client:
                 _log.debug(
                     "nextcord.Client: Calling your application command now %s", app_cmd.error_name
                 )
+                self.dispatch("on_application_command", interaction, app_cmd)
                 await app_cmd.call_from_interaction(interaction)
             elif self._lazy_load_commands:
                 _log.debug(
@@ -2145,6 +2146,7 @@ class Client:
                         )
                         app_cmd.parse_discord_response(self._connection, interaction.data)
                         self.add_application_command(app_cmd)
+                        self.dispatch("on_application_command", interaction, app_cmd)
                         await app_cmd.call_from_interaction(interaction)
                     else:
                         do_deploy = True
